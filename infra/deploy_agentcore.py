@@ -90,7 +90,7 @@ def create_runtime():
     if not ecr_image_uri:
         print("  ERROR: ECR_IMAGE_URI environment variable is required.")
         print("  Set it to the full ECR image URI (from CFN output + tag).")
-        print("  Example: 905418197933.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent:latest")
+        print("  Example: <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent:latest")
         sys.exit(1)
 
     if not role_arn:

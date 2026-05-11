@@ -68,7 +68,7 @@ docs/                   Reference docs from v1 planning
 ### Prerequisites
 
 - Python 3.10+
-- AWS credentials configured (region: `us-east-1`, account: `905418197933`)
+- AWS credentials configured (region: `us-east-1`)
 - AgentCore Memory resource provisioned (see below)
 
 ### 1. Backend

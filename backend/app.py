@@ -5,9 +5,12 @@ import os
 import re
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 
 import boto3
+from botocore.config import Config as BotoConfig
+from botocore.exceptions import ClientError, ReadTimeoutError, ConnectTimeoutError
 
 app = Flask(__name__)
 CORS(app)
@@ -16,6 +19,39 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "expenses.db")
 
 # ── Bedrock configuration (used by chart builder Lambda) ──────────────────────
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
+
+# ── AgentCore Runtime configuration ──────────────────────────────────────────
+AGENTCORE_RUNTIME_ARN = os.environ.get("AGENTCORE_RUNTIME_ARN")
+STATE_FILE_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "infra", ".agentcore-state.json"
+)
+
+
+def get_runtime_arn():
+    """Resolve the agent runtime ARN from env var or state file."""
+    if AGENTCORE_RUNTIME_ARN:
+        return AGENTCORE_RUNTIME_ARN
+    try:
+        with open(STATE_FILE_PATH) as f:
+            state = json.load(f)
+            return state.get("agent_runtime_arn")
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+
+
+# boto3 client for AgentCore Runtime invocation
+_agentcore_boto_config = BotoConfig(
+    region_name=BEDROCK_REGION,
+    read_timeout=90,
+    connect_timeout=10,
+    retries={"max_attempts": 1},
+)
+
+try:
+    agentcore_client = boto3.client("bedrock-agentcore", config=_agentcore_boto_config)
+except Exception as e:
+    logging.warning(f"Could not create AgentCore client: {e}")
+    agentcore_client = None
 
 DEFAULT_CATEGORIES = [
     ("airline",       "Airline",       "✈️",  1),
@@ -548,13 +584,14 @@ def build_chart(instruction, data):
         return None
 
 
-# ── Chat route (placeholder — will proxy to AgentCore Runtime) ────────────────
+# ── Chat route (proxies to AgentCore Runtime) ────────────────────────────────
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
     """
-    Chat endpoint. In v2 this will proxy to the Strands Agent running on
-    AgentCore Runtime. For now it returns a placeholder response.
+    Chat endpoint. Proxies requests to the Strands Agent running on
+    AgentCore Runtime. Returns the agent's response in a format compatible
+    with the frontend chat UI.
     """
     data = request.get_json()
     message = (data.get("message") or "").strip()
@@ -564,12 +601,43 @@ def chat():
     if len(message) > 1000:
         return jsonify({"error": "Message must be 1000 characters or fewer"}), 400
 
-    # TODO: Proxy to AgentCore Runtime endpoint
-    return jsonify({
-        "answer": "Chat is being upgraded to AgentCore. This endpoint will proxy to the Strands Agent soon.",
-        "sql": None,
-        "data": None,
-    })
+    # Resolve runtime ARN
+    runtime_arn = get_runtime_arn()
+    if not runtime_arn:
+        return jsonify({"error": "Agent runtime not configured"}), 503
+
+    if not agentcore_client:
+        return jsonify({"error": "Agent runtime client not available"}), 503
+
+    # Invoke the agent
+    try:
+        session_id = str(uuid.uuid4())
+        response = agentcore_client.invoke_agent_runtime(
+            agentRuntimeArn=runtime_arn,
+            runtimeSessionId=session_id,
+            payload=json.dumps({"prompt": message}).encode(),
+        )
+
+        # Parse response body
+        body = json.loads(response["body"].read())
+        answer = body.get("answer", "")
+        chart = body.get("chart")
+
+        return jsonify({
+            "answer": answer,
+            "sql": None,
+            "data": None,
+            "chart": chart,
+        })
+
+    except (ReadTimeoutError, ConnectTimeoutError, ConnectionError):
+        return jsonify({"error": "Agent service unavailable"}), 502
+    except ClientError as e:
+        logging.error(f"AgentCore invocation error: {e}")
+        return jsonify({"error": "Agent returned an error"}), 502
+    except Exception as e:
+        logging.error(f"Unexpected chat error: {e}")
+        return jsonify({"error": "Internal server error"}), 500
 
 
 # ── Summary ───────────────────────────────────────────────────────────────────
@@ -592,4 +660,13 @@ def get_summary():
 
 if __name__ == "__main__":
     init_db()
+
+    # Startup validation: warn if agent runtime is not configured
+    runtime_arn = get_runtime_arn()
+    if not runtime_arn:
+        logging.warning(
+            "AGENTCORE_RUNTIME_ARN not set and state file not found. "
+            "Chat endpoint will return 503 until configured."
+        )
+
     app.run(debug=True, port=5000)

@@ -24,7 +24,7 @@ boto3 Scripts (no CFN support yet)
 
 ## Prerequisites
 
-- AWS CLI configured with credentials for account `905418197933`
+- AWS CLI configured with credentials for account `<AWS_ACCOUNT_ID>`
 - Python 3.10+ with boto3, bedrock-agentcore installed
 - Docker (for building the agent container image)
 
@@ -60,8 +60,8 @@ aws cloudformation describe-stacks \
 ```
 
 Note these values:
-- `ECRRepositoryUri` — e.g. `905418197933.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent`
-- `AgentRuntimeRoleArn` — e.g. `arn:aws:iam::905418197933:role/egru-expense-agent-runtime-role`
+- `ECRRepositoryUri` — e.g. `<AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent`
+- `AgentRuntimeRoleArn` — e.g. `arn:aws:iam::<AWS_ACCOUNT_ID>:role/egru-expense-agent-runtime-role`
 - `ChartBuilderFunctionName` — `egru-chart-builder`
 
 ---
@@ -88,16 +88,16 @@ cd ../..
 ```bash
 # Authenticate Docker to ECR
 aws ecr get-login-password --region us-east-1 | \
-  docker login --username AWS --password-stdin 905418197933.dkr.ecr.us-east-1.amazonaws.com
+  docker login --username AWS --password-stdin <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
 
 # Build the image (from project root)
 docker build --platform linux/arm64 -f infra/Dockerfile -t egru-expense-agent .
 
 # Tag and push
 docker tag egru-expense-agent:latest \
-  905418197933.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent:latest
+  <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent:latest
 
-docker push 905418197933.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent:latest
+docker push <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent:latest
 ```
 
 ---
@@ -121,8 +121,8 @@ export AGENTCORE_MEMORY_ID=<id from output>
 ### Step 5: Create AgentCore Runtime
 
 ```bash
-export ECR_IMAGE_URI=905418197933.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent:latest
-export AGENT_RUNTIME_ROLE=arn:aws:iam::905418197933:role/egru-expense-agent-runtime-role
+export ECR_IMAGE_URI=<AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent:latest
+export AGENT_RUNTIME_ROLE=arn:aws:iam::<AWS_ACCOUNT_ID>:role/egru-expense-agent-runtime-role
 
 python deploy_agentcore.py --create-runtime
 ```

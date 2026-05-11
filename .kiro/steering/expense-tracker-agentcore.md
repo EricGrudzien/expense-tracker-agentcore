@@ -67,7 +67,7 @@ python3 -m http.server 8080   # open http://localhost:8080
 
 ### AWS Configuration
 
-- AWS account: 905418197933, region: us-east-1
+- AWS account: <AWS_ACCOUNT_ID>, region: us-east-1
 - AgentCore Memory ID: set via `AGENTCORE_MEMORY_ID` env var
 - Chart builder Lambda: `egru-chart-builder`
 

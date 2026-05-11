@@ -213,4 +213,4 @@ User types a question in the chat UI (e.g. "Show spending by category" or "Show 
 ### AWS Resources
 - **Flow ID:** FNO4NHO5DT, **Alias:** TSTALIASID
 - **Lambdas:** `bedrock-flow-json-parser`, `egru-chart-builder`
-- **Region:** us-east-1, **Account:** 905418197933
+- **Region:** us-east-1, **Account:** <AWS_ACCOUNT_ID>
