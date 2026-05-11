@@ -32,3 +32,6 @@ Thumbs.db
 
 # AWS
 .aws-sam/
+
+# Infrastructure state (contains resource IDs, not secrets)
+infra/.agentcore-state.json

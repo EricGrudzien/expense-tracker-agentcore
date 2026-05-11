@@ -1,0 +1,139 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Expense Tracker AgentCore — supporting infrastructure.
+  Creates IAM role for AgentCore Runtime, ECR repository for the agent
+  container image, and the chart-builder Lambda function.
+
+Parameters:
+  Prefix:
+    Type: String
+    Default: egru
+    Description: Resource name prefix
+
+  UserTag:
+    Type: String
+    Default: egru
+    Description: Value for the "user" tag on all resources
+
+Resources:
+  # ── ECR Repository for the agent container image ────────────────────────────
+  AgentECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${Prefix}-expense-agent"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      Tags:
+        - Key: user
+          Value: !Ref UserTag
+
+  # ── IAM Role for AgentCore Runtime ──────────────────────────────────────────
+  AgentRuntimeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${Prefix}-expense-agent-runtime-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock-agentcore.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "${Prefix}-expense-agent-runtime-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Bedrock model invocation
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: "*"
+              # Lambda invocation (chart builder)
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt ChartBuilderFunction.Arn
+              # ECR pull (for container deployment)
+              - Effect: Allow
+                Action:
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:GetAuthorizationToken
+                Resource: "*"
+              # AgentCore Memory
+              - Effect: Allow
+                Action:
+                  - bedrock:CreateMemory
+                  - bedrock:GetMemory
+                  - bedrock:ListMemories
+                  - bedrock:DeleteMemory
+                  - bedrock:CreateMemoryEvent
+                  - bedrock:ListMemoryEvents
+                  - bedrock:RetrieveMemory
+                Resource: "*"
+              # CloudWatch Logs
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+      Tags:
+        - Key: user
+          Value: !Ref UserTag
+
+  # ── IAM Role for the Chart Builder Lambda ───────────────────────────────────
+  ChartBuilderLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${Prefix}-chart-builder-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Tags:
+        - Key: user
+          Value: !Ref UserTag
+
+  # ── Chart Builder Lambda Function ───────────────────────────────────────────
+  ChartBuilderFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${Prefix}-chart-builder"
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt ChartBuilderLambdaRole.Arn
+      Code:
+        ZipFile: |
+          # Placeholder — deploy actual code via `aws lambda update-function-code`
+          def lambda_handler(event, context):
+              return {"error": "Not deployed yet"}
+      Timeout: 30
+      MemorySize: 128
+      Tags:
+        - Key: user
+          Value: !Ref UserTag
+
+Outputs:
+  ECRRepositoryUri:
+    Description: ECR repository URI for the agent container image
+    Value: !GetAtt AgentECRRepository.RepositoryUri
+
+  AgentRuntimeRoleArn:
+    Description: IAM role ARN for AgentCore Runtime
+    Value: !GetAtt AgentRuntimeRole.Arn
+
+  ChartBuilderFunctionArn:
+    Description: Chart builder Lambda ARN
+    Value: !GetAtt ChartBuilderFunction.Arn
+
+  ChartBuilderFunctionName:
+    Description: Chart builder Lambda function name
+    Value: !Ref ChartBuilderFunction
