@@ -46,7 +46,7 @@ def _make_agent_response(answer, chart=None):
     if chart is not None:
         body["chart"] = chart
     stream = io.BytesIO(json.dumps(body).encode())
-    return {"body": stream}
+    return {"response": stream}
 
 
 @pytest.fixture
@@ -140,6 +140,7 @@ class TestSuccessPath:
 
         assert resp.status_code == 200
         assert data["answer"] == "Total spending is $5,430."
+        assert data["session_id"]  # session_id must be present and non-empty
         assert data["sql"] is None
         assert data["data"] is None
         assert data.get("chart") is None
@@ -154,12 +155,13 @@ class TestSuccessPath:
 
         assert resp.status_code == 200
         assert data["answer"] == "Here's your chart."
+        assert data["session_id"]  # session_id must be present and non-empty
         assert data["chart"] == chart_config
 
     def test_session_id_is_uuid4(self, client, mock_runtime_arn, mock_agentcore_client):
         import uuid
 
-        client.post("/api/chat", json={"message": "test"})
+        resp = client.post("/api/chat", json={"message": "test"})
         call_kwargs = mock_agentcore_client.invoke_agent_runtime.call_args[1]
         session_id = call_kwargs["runtimeSessionId"]
 
@@ -167,11 +169,20 @@ class TestSuccessPath:
         parsed = uuid.UUID(session_id, version=4)
         assert str(parsed) == session_id
 
+        # Verify session_id is also in the response body
+        data = resp.get_json()
+        assert data["session_id"] == session_id
+
     def test_message_forwarded_as_prompt(self, client, mock_runtime_arn, mock_agentcore_client):
-        client.post("/api/chat", json={"message": "How much on hotels?"})
+        resp = client.post("/api/chat", json={"message": "How much on hotels?"})
         call_kwargs = mock_agentcore_client.invoke_agent_runtime.call_args[1]
         payload = json.loads(call_kwargs["payload"])
         assert payload["prompt"] == "How much on hotels?"
+        assert "session_id" in payload
+
+        # Verify the session_id in payload matches the response
+        data = resp.get_json()
+        assert data["session_id"] == payload["session_id"]
 
 
 # ── Error path tests ──────────────────────────────────────────────────────────

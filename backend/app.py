@@ -609,13 +609,17 @@ def chat():
     if not agentcore_client:
         return jsonify({"error": "Agent runtime client not available"}), 503
 
+    # Resolve session ID: use client-provided value or generate a fallback
+    session_id = (data.get("session_id") or "").strip()
+    if not session_id:
+        session_id = str(uuid.uuid4())
+
     # Invoke the agent
     try:
-        session_id = str(uuid.uuid4())
         response = agentcore_client.invoke_agent_runtime(
             agentRuntimeArn=runtime_arn,
             runtimeSessionId=session_id,
-            payload=json.dumps({"prompt": message}).encode(),
+            payload=json.dumps({"prompt": message, "session_id": session_id}).encode(),
         )
 
         # Parse response body
@@ -625,6 +629,7 @@ def chat():
 
         return jsonify({
             "answer": answer,
+            "session_id": session_id,
             "sql": None,
             "data": None,
             "chart": chart,

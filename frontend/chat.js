@@ -1,5 +1,11 @@
 const API_BASE = "http://localhost:5000/api";
 
+// ── Session tracking ──────────────────────────────────────────────────────────
+let sessionId = crypto.randomUUID();
+
+// ── Scroll tracking ──────────────────────────────────────────────────────────
+let userScrolledUp = false;
+
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const messagesEl = document.getElementById("chat-messages");
 const inputEl    = document.getElementById("chat-input");
@@ -16,9 +22,17 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function scrollToBottom() {
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+function scrollToBottom(force = false) {
+  if (force || !userScrolledUp) {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
 }
+
+// ── Scroll event listener ─────────────────────────────────────────────────────
+messagesEl.addEventListener("scroll", () => {
+  const atBottom = messagesEl.scrollTop + messagesEl.clientHeight >= messagesEl.scrollHeight - 50;
+  userScrolledUp = !atBottom;
+});
 
 // ── Bubble rendering ──────────────────────────────────────────────────────────
 
@@ -27,7 +41,8 @@ function addUserBubble(text) {
   bubble.className = "chat-bubble chat-bubble--user";
   bubble.textContent = text;
   messagesEl.appendChild(bubble);
-  scrollToBottom();
+  userScrolledUp = false;
+  scrollToBottom(true);
 }
 
 function addAssistantBubble(answer, sql, chartConfig) {
@@ -127,7 +142,7 @@ async function sendMessage() {
     const res = await fetch(`${API_BASE}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify({ message: text, session_id: sessionId }),
     });
     const data = await res.json();
 
@@ -167,6 +182,22 @@ inputEl.addEventListener("keydown", (e) => {
 sendBtn.addEventListener("click", () => {
   if (!isSending) sendMessage();
 });
+
+// ── New Conversation ──────────────────────────────────────────────────────────
+
+function startNewConversation() {
+  sessionId = crypto.randomUUID();
+  messagesEl.innerHTML = "";
+  addAssistantBubble(
+    "Ask me anything about your expenses — for example:\n" +
+    "• \"What's my total spending?\"\n" +
+    "• \"Show all airline costs\"\n" +
+    "• \"Show me a bar chart of spending by category\"\n" +
+    "• \"How much did I spend in April 2026?\"",
+    null,
+    null
+  );
+}
 
 // ── Welcome message + config indicator ─────────────────────────────────────────
 

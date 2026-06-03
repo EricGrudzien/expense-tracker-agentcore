@@ -18,6 +18,7 @@ COPY backend/expenses.db /data/expenses.db
 # Set environment variables
 ENV EXPENSE_DB_PATH=/data/expenses.db
 ENV BEDROCK_REGION=us-east-1
+ENV AGENTCORE_MEMORY_ID=""
 
 # AgentCore Runtime requires port 8080
 EXPOSE 8080

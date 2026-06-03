@@ -48,13 +48,13 @@ def create_memory_resource():
             {
                 "summaryMemoryStrategy": {
                     "name": "SessionSummarizer",
-                    "namespaces": ["/summaries/{actorId}/{sessionId}"],
+                    "namespaces": ["/summaries/{actorId}/{sessionId}/"],
                 }
             },
             {
                 "semanticMemoryStrategy": {
                     "name": "FactExtractor",
-                    "namespaces": ["/facts/{actorId}"],
+                    "namespaces": ["/facts/{actorId}/"],
                 }
             },
         ],
@@ -75,24 +75,25 @@ def get_session_manager(session_id: str, actor_id: str = "default_user"):
 
     Returns:
         AgentCoreMemorySessionManager configured with short-term and
-        long-term memory retrieval.
+        long-term memory retrieval, or None if AGENTCORE_MEMORY_ID is not set.
     """
     if not MEMORY_ID:
-        raise ValueError(
+        logger.warning(
             "AGENTCORE_MEMORY_ID environment variable is not set. "
             "Run `python memory.py --create` first to provision the memory resource."
         )
+        return None
 
     config = AgentCoreMemoryConfig(
         memory_id=MEMORY_ID,
         session_id=session_id,
         actor_id=actor_id,
         retrieval_config={
-            "/facts/{actorId}": RetrievalConfig(
+            "/facts/{actorId}/": RetrievalConfig(
                 top_k=10,
                 relevance_score=0.5,
             ),
-            "/summaries/{actorId}/{sessionId}": RetrievalConfig(
+            "/summaries/{actorId}/{sessionId}/": RetrievalConfig(
                 top_k=5,
                 relevance_score=0.5,
             ),
