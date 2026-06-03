@@ -36,9 +36,23 @@ pip install boto3 bedrock-agentcore
 
 ## Step-by-Step Deployment
 
-### Step 1: Deploy the CloudFormation Stack
+### Step 1: Upload Lambda Code to S3
 
-This creates the IAM roles, ECR repository, and chart-builder Lambda.
+The CloudFormation template pulls Lambda code from S3. Upload it first:
+
+```bash
+cd lambda/chart-builder
+zip chart-builder.zip lambda_function.py
+aws s3 cp chart-builder.zip s3://0-egru/cfn/lambdas/chart-builder.zip
+rm chart-builder.zip
+cd ../..
+```
+
+---
+
+### Step 2: Deploy the CloudFormation Stack
+
+This creates the IAM roles, ECR repository, and chart-builder Lambda (pulling code from S3).
 
 ```bash
 aws cloudformation deploy \
@@ -63,23 +77,6 @@ Note these values:
 - `ECRRepositoryUri` — e.g. `<AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent`
 - `AgentRuntimeRoleArn` — e.g. `arn:aws:iam::<AWS_ACCOUNT_ID>:role/egru-expense-agent-runtime-role`
 - `ChartBuilderFunctionName` — `egru-chart-builder`
-
----
-
-### Step 2: Deploy the Chart Builder Lambda Code
-
-The CFN stack creates the Lambda with placeholder code. Deploy the real code:
-
-```bash
-cd lambda/chart-builder
-zip lambda.zip lambda_function.py
-aws lambda update-function-code \
-  --function-name egru-chart-builder \
-  --zip-file fileb://lambda.zip \
-  --region us-east-1
-rm lambda.zip
-cd ../..
-```
 
 ---
 

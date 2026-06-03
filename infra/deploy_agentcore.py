@@ -101,7 +101,7 @@ def create_runtime():
     client = boto3.client("bedrock-agentcore-control", region_name=REGION)
 
     response = client.create_agent_runtime(
-        agentRuntimeName=f"{PREFIX}-expense-agent",
+        agentRuntimeName=f"{PREFIX}_expense_agent",
         agentRuntimeArtifact={
             "containerConfiguration": {
                 "containerUri": ecr_image_uri,
@@ -112,11 +112,14 @@ def create_runtime():
     )
 
     agent_runtime_arn = response.get("agentRuntimeArn")
+    agent_runtime_id = response.get("agentRuntimeId")
     print(f"  ✓ Runtime created: {agent_runtime_arn}")
+    print(f"  ID: {agent_runtime_id}")
     print(f"  Status: {response.get('status', 'CREATING')}")
 
     state = load_state()
     state["agent_runtime_arn"] = agent_runtime_arn
+    state["agent_runtime_id"] = agent_runtime_id
     save_state(state)
 
     # Wait for it to become active
@@ -124,7 +127,7 @@ def create_runtime():
     for i in range(60):
         time.sleep(10)
         try:
-            status_resp = client.get_agent_runtime(agentRuntimeArn=agent_runtime_arn)
+            status_resp = client.get_agent_runtime(agentRuntimeId=agent_runtime_id)
             status = status_resp.get("status", "UNKNOWN")
             if status == "ACTIVE":
                 print(f"  ✓ Runtime is ACTIVE")

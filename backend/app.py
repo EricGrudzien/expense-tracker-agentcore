@@ -619,8 +619,8 @@ def chat():
         )
 
         # Parse response body
-        body = json.loads(response["body"].read())
-        answer = body.get("answer", "")
+        body = json.loads(response["response"].read())
+        answer = body.get("answer", body.get("result", ""))
         chart = body.get("chart")
 
         return jsonify({

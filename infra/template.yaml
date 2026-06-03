@@ -15,6 +15,16 @@ Parameters:
     Default: egru
     Description: Value for the "user" tag on all resources
 
+  LambdaS3Bucket:
+    Type: String
+    Default: 0-egru
+    Description: S3 bucket containing Lambda deployment packages
+
+  LambdaS3Prefix:
+    Type: String
+    Default: cfn/lambdas
+    Description: S3 key prefix for Lambda zip files
+
 Resources:
   # ── ECR Repository for the agent container image ────────────────────────────
   AgentECRRepository:
@@ -111,10 +121,8 @@ Resources:
       Handler: lambda_function.lambda_handler
       Role: !GetAtt ChartBuilderLambdaRole.Arn
       Code:
-        ZipFile: |
-          # Placeholder — deploy actual code via `aws lambda update-function-code`
-          def lambda_handler(event, context):
-              return {"error": "Not deployed yet"}
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Sub "${LambdaS3Prefix}/chart-builder.zip"
       Timeout: 30
       MemorySize: 128
       Tags:
