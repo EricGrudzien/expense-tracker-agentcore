@@ -128,11 +128,13 @@ agentcore launch
 
 ## Implementation Phases
 
-| Phase | Focus                        | Status      |
-|-------|------------------------------|-------------|
-| 1     | Foundation — agent + tools + Runtime | In progress |
-| 2     | Memory + multi-turn chat UI  | Planned     |
-| 3     | Code Interpreter + Observability | Planned  |
-| 4     | Gateway (MCP tools) + Identity | Stretch   |
+| Phase | Focus                                          | Status      |
+|-------|------------------------------------------------|-------------|
+| 1     | Foundation (Demo) — agent + tools + containers | In progress |
+| 2     | Memory + multi-turn chat UI                    | Planned     |
+| 3     | Productionize — App Runner + Aurora Postgres   | Planned     |
+| 4     | Code Interpreter + Observability               | Planned     |
+| 5     | Gateway (MCP tools) + Identity                 | Stretch     |
+| 6     | Frontend hosting (S3 + CloudFront)             | Stretch     |
 
 See [docs/agentcore-project-structure.md](docs/agentcore-project-structure.md) for details.

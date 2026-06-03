@@ -104,12 +104,15 @@ expense-tracker-agentcore/
 
 ## Implementation Phases
 
-### Phase 1: Foundation
-1. Create new repo, copy over frontend + backend CRUD + chart builder
-2. Build the Strands Agent with expense query tools
-3. Deploy on AgentCore Runtime
-4. Wire Flask `/api/chat` to proxy to the Runtime endpoint
-5. Verify feature parity with v1 (text queries + chart rendering)
+### Phase 1: Foundation (Demo) ✅ Code complete, deployment pending
+1. Create new repo, copy over frontend + backend CRUD + chart builder ✅
+2. Build the Strands Agent with expense query tools ✅
+3. Wire Flask `/api/chat` to proxy to the Runtime endpoint ✅
+4. Containerize Flask + SQLite together (single Docker image for quick demo)
+5. Deploy agent on AgentCore Runtime
+6. Deploy Flask container (local Docker or quick cloud deploy)
+7. Verify end-to-end: frontend (local) → Flask (container) → AgentCore → agent → response
+8. Verify feature parity with v1 (text queries + chart rendering)
 
 ### Phase 2: Memory + Multi-turn
 1. Set up AgentCore Memory (short-term)
@@ -117,13 +120,31 @@ expense-tracker-agentcore/
 3. Add long-term semantic memory strategy
 4. Test follow-up questions and context continuity
 
-### Phase 3: Code Interpreter + Observability
+### Phase 3: Productionize — App Runner + Aurora Serverless
+1. Provision Aurora Serverless v2 (Postgres) via CloudFormation
+2. Migrate SQLite schema and data to Aurora Postgres
+3. Update Flask backend to use psycopg2/SQLAlchemy instead of sqlite3
+4. Update agent tools to call Flask API via HTTP (decouple from direct DB access)
+5. Deploy Flask to AWS App Runner (container from ECR)
+6. Configure App Runner VPC connector for private Aurora access
+7. Remove SQLite from both containers (agent and Flask)
+8. Update agent Docker image — no longer needs baked-in expenses.db
+9. Test end-to-end with production architecture:
+   Frontend (local) → Flask (App Runner) → AgentCore Runtime → agent → Flask API → Aurora
+10. Update CloudFormation template with App Runner + Aurora resources
+
+### Phase 4: Code Interpreter + Observability
 1. Replace code-executor Lambda with AgentCore Code Interpreter
 2. Enable AgentCore Observability
 3. Remove custom `chat.log` logging
 4. Set up CloudWatch dashboards
 
-### Phase 4: Gateway + Identity (stretch)
+### Phase 5: Gateway + Identity (stretch)
 1. Define structured MCP tools via AgentCore Gateway
 2. Add AgentCore Identity for user auth
 3. Scope data access per user
+
+### Phase 6: Frontend Hosting (stretch)
+1. Deploy frontend to S3 + CloudFront
+2. Update API base URL to point to App Runner
+3. Add custom domain (optional)
