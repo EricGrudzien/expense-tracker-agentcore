@@ -1,8 +1,8 @@
 # Infrastructure Deployment Guide
 
 This directory contains everything needed to deploy and tear down the Expense Tracker
-AgentCore infrastructure. All AWS resources are prefixed with `egru-` and tagged with
-`user: egru`.
+AgentCore infrastructure. All AWS resources are prefixed with `egru-` or `egru_` and
+tagged with `user: egru`.
 
 ---
 
@@ -13,20 +13,24 @@ CloudFormation Stack (egru-expense-agent-stack)
 ├── IAM Role: egru-expense-agent-runtime-role   (for AgentCore Runtime)
 ├── IAM Role: egru-chart-builder-lambda-role    (for Lambda)
 ├── ECR Repo: egru-expense-agent                (agent container image)
-└── Lambda:   egru-chart-builder                (chart generation)
+└── Lambda:   egru-chart-builder                (chart generation, code from S3)
 
 boto3 Scripts (no CFN support yet)
-├── AgentCore Memory: egru-expense-tracker-memory
-└── AgentCore Runtime: egru-expense-agent
+├── AgentCore Memory: egru_expense_tracker_memory
+└── AgentCore Runtime: egru_expense_agent
+
+Local Containers
+└── Flask Backend: egru-expense-backend         (docker, localhost:5000)
 ```
 
 ---
 
 ## Prerequisites
 
-- AWS CLI configured with credentials for account `<AWS_ACCOUNT_ID>`
-- Python 3.10+ with boto3, bedrock-agentcore installed
-- Docker (for building the agent container image)
+- AWS CLI configured with credentials (region: `us-east-1`)
+- Python 3.10+ with `boto3` and `bedrock-agentcore` installed
+- Docker (for building container images)
+- S3 bucket `0-egru` exists (for Lambda deployment packages)
 
 ```bash
 pip install boto3 bedrock-agentcore
@@ -34,7 +38,7 @@ pip install boto3 bedrock-agentcore
 
 ---
 
-## Step-by-Step Deployment
+## Full Deployment (Steps 1–6)
 
 ### Step 1: Upload Lambda Code to S3
 
@@ -52,7 +56,7 @@ cd ../..
 
 ### Step 2: Deploy the CloudFormation Stack
 
-This creates the IAM roles, ECR repository, and chart-builder Lambda (pulling code from S3).
+Creates IAM roles, ECR repository, and chart-builder Lambda.
 
 ```bash
 aws cloudformation deploy \
@@ -63,7 +67,7 @@ aws cloudformation deploy \
   --tags user=egru
 ```
 
-Get the outputs (you'll need these for later steps):
+Get the outputs:
 
 ```bash
 aws cloudformation describe-stacks \
@@ -73,78 +77,119 @@ aws cloudformation describe-stacks \
   --region us-east-1
 ```
 
-Note these values:
-- `ECRRepositoryUri` — e.g. `<AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent`
-- `AgentRuntimeRoleArn` — e.g. `arn:aws:iam::<AWS_ACCOUNT_ID>:role/egru-expense-agent-runtime-role`
-- `ChartBuilderFunctionName` — `egru-chart-builder`
+Note these values for later steps:
+- `ECRRepositoryUri` — the ECR repo URI
+- `AgentRuntimeRoleArn` — IAM role for the agent runtime
 
 ---
 
 ### Step 3: Build and Push the Agent Container Image
 
 ```bash
+# Get your account ID
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
 # Authenticate Docker to ECR
 aws ecr get-login-password --region us-east-1 | \
-  docker login --username AWS --password-stdin <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
+  docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com
 
-# Build the image (from project root)
+# Build the image (from project root, linux/arm64 required by AgentCore)
 docker build --platform linux/arm64 -f infra/Dockerfile -t egru-expense-agent .
 
 # Tag and push
 docker tag egru-expense-agent:latest \
-  <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent:latest
+  ${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent:latest
 
-docker push <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent:latest
+docker push ${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent:latest
 ```
 
 ---
 
-### Step 4: Create AgentCore Memory
+### Step 4: Deploy Agent to AgentCore Runtime
 
 ```bash
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+export ECR_IMAGE_URI=${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent:latest
+export AGENT_RUNTIME_ROLE=arn:aws:iam::${AWS_ACCOUNT_ID}:role/egru-expense-agent-runtime-role
+
 cd infra
-python deploy_agentcore.py --create-memory
-```
-
-This creates the memory resource and saves the ID to `.agentcore-state.json`.
-Set the environment variable for the agent:
-
-```bash
-export AGENTCORE_MEMORY_ID=<id from output>
-```
-
----
-
-### Step 5: Create AgentCore Runtime
-
-```bash
-export ECR_IMAGE_URI=<AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/egru-expense-agent:latest
-export AGENT_RUNTIME_ROLE=arn:aws:iam::<AWS_ACCOUNT_ID>:role/egru-expense-agent-runtime-role
-
 python deploy_agentcore.py --create-runtime
 ```
 
-This deploys the agent container and waits for it to become ACTIVE.
-The endpoint URL is saved to `.agentcore-state.json`.
+The script creates the runtime and polls until status is `READY`. It saves the ARN to
+`.agentcore-state.json`.
+
+**Verify status manually:**
+```bash
+# Get the runtime ID from the state file
+RUNTIME_ID=$(python3 -c "import json; print(json.load(open('.agentcore-state.json'))['agent_runtime_id'])")
+
+aws bedrock-agentcore-control get-agent-runtime \
+  --agent-runtime-id ${RUNTIME_ID} \
+  --region us-east-1 \
+  --query "status"
+```
+
+Expected output: `"READY"`
 
 ---
 
-### Step 6: Test the Deployed Agent
+### Step 5: Build and Run the Flask Backend Container
 
 ```bash
-# Read the endpoint from state
-cat infra/.agentcore-state.json
+cd ..  # back to project root
 
-# Invoke via boto3
-python -c "
+# Build the Flask container
+docker build -t egru-expense-backend ./backend
+
+# Get the runtime ARN from state
+RUNTIME_ARN=$(python3 -c "import json; print(json.load(open('infra/.agentcore-state.json'))['agent_runtime_arn'])")
+
+# Run with AWS credentials
+docker run -p 5000:5000 \
+  -e AGENTCORE_RUNTIME_ARN=${RUNTIME_ARN} \
+  -e AWS_ACCESS_KEY_ID=$(aws configure get aws_access_key_id) \
+  -e AWS_SECRET_ACCESS_KEY=$(aws configure get aws_secret_access_key) \
+  -e AWS_SESSION_TOKEN=$(aws configure get aws_session_token) \
+  -e AWS_DEFAULT_REGION=us-east-1 \
+  egru-expense-backend
+```
+
+---
+
+### Step 6: Start the Frontend and Test
+
+```bash
+# In a new terminal
+cd frontend
+python3 -m http.server 8080
+```
+
+Open http://localhost:8080 and navigate to the Chat page.
+
+**Test via curl:**
+```bash
+# Test CRUD (should work immediately)
+curl http://localhost:5000/api/summary
+
+# Test chat (goes through AgentCore)
+curl -X POST http://localhost:5000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "How much did I spend total?"}'
+```
+
+**Test agent directly via boto3:**
+```bash
+python3 -c "
 import boto3, json
 client = boto3.client('bedrock-agentcore', region_name='us-east-1')
 resp = client.invoke_agent_runtime(
-    agentRuntimeArn='<arn from state>',
-    runtimeSessionId='test-session-1',
-    payload=json.dumps({'prompt': 'How much did I spend on hotels?'}).encode()
+    agentRuntimeArn='$(python3 -c "import json; print(json.load(open('infra/.agentcore-state.json'))['agent_runtime_arn'])")',
+    payload=json.dumps({'prompt': 'What categories do I have?'}).encode()
 )
-print(json.loads(resp['body'].read()))
+body = json.loads(resp['response'].read())
+print(json.dumps(body, indent=2))
 "
 ```
 
@@ -155,26 +200,47 @@ print(json.loads(resp['body'].read()))
 Tear down in reverse order:
 
 ```bash
-# 1. Delete AgentCore resources (Runtime + Memory)
+# 1. Stop local Docker containers
+docker stop $(docker ps -q --filter ancestor=egru-expense-backend)
+
+# 2. Delete AgentCore resources (Runtime + Memory)
 cd infra
 python teardown_agentcore.py --all
+cd ..
 
-# 2. Delete the ECR images (required before stack deletion)
+# 3. Delete the ECR images (required before stack deletion)
 aws ecr batch-delete-image \
   --repository-name egru-expense-agent \
   --image-ids imageTag=latest \
   --region us-east-1
 
-# 3. Delete the CloudFormation stack
+# 4. Delete the CloudFormation stack
 aws cloudformation delete-stack \
   --stack-name egru-expense-agent-stack \
   --region us-east-1
 
-# 4. Wait for stack deletion
+# 5. Wait for stack deletion
 aws cloudformation wait stack-delete-complete \
   --stack-name egru-expense-agent-stack \
   --region us-east-1
+
+# 6. (Optional) Remove Lambda zip from S3
+aws s3 rm s3://0-egru/cfn/lambdas/chart-builder.zip
 ```
+
+---
+
+## Gotchas and Lessons Learned
+
+| Issue | Solution |
+|-------|----------|
+| AgentCore Runtime name can't have hyphens | Use underscores: `egru_expense_agent` |
+| `get_agent_runtime` uses `agentRuntimeId` | But `invoke_agent_runtime` uses `agentRuntimeArn` — different APIs use different identifiers |
+| Response body is at `resp['response']` | Not `resp['body']` — it's a `StreamingBody` that needs `.read()` |
+| Agent response has `result` field | The Strands `BedrockAgentCoreApp` returns `{"result": "..."}` |
+| Lambda code too large for inline CFN | Upload zip to S3, reference via `S3Bucket`/`S3Key` in template |
+| CFN fails with `ResourceExistenceCheck` | A resource with that name already exists — delete it first or remove from template |
+| Docker needs `--platform linux/arm64` | AgentCore Runtime requires ARM64 containers |
 
 ---
 
@@ -182,8 +248,8 @@ aws cloudformation wait stack-delete-complete \
 
 | File | Purpose |
 |------|---------|
-| `template.yaml` | CloudFormation template — IAM roles, ECR repo, Lambda |
-| `Dockerfile` | Agent container image definition |
+| `template.yaml` | CloudFormation template — IAM roles, ECR repo, Lambda (from S3) |
+| `Dockerfile` | Agent container image definition (linux/arm64) |
 | `deploy_agentcore.py` | Create AgentCore Memory + Runtime (boto3) |
 | `teardown_agentcore.py` | Delete AgentCore Memory + Runtime (boto3) |
 | `.agentcore-state.json` | Auto-generated — stores resource IDs (gitignored) |
@@ -193,35 +259,15 @@ aws cloudformation wait stack-delete-complete \
 
 ## Resource Naming Convention
 
-All resources follow the pattern `egru-<resource-name>`:
+| Resource | Name | Notes |
+|----------|------|-------|
+| CloudFormation Stack | `egru-expense-agent-stack` | |
+| ECR Repository | `egru-expense-agent` | Hyphens OK in ECR |
+| IAM Role (Runtime) | `egru-expense-agent-runtime-role` | Hyphens OK in IAM |
+| IAM Role (Lambda) | `egru-chart-builder-lambda-role` | |
+| Lambda Function | `egru-chart-builder` | Code from `s3://0-egru/cfn/lambdas/` |
+| AgentCore Memory | `egru_expense_tracker_memory` | Underscores only |
+| AgentCore Runtime | `egru_expense_agent` | Underscores only |
+| Flask Container | `egru-expense-backend` | Local Docker only |
 
-| Resource | Name |
-|----------|------|
-| CloudFormation Stack | `egru-expense-agent-stack` |
-| ECR Repository | `egru-expense-agent` |
-| IAM Role (Runtime) | `egru-expense-agent-runtime-role` |
-| IAM Role (Lambda) | `egru-chart-builder-lambda-role` |
-| Lambda Function | `egru-chart-builder` |
-| AgentCore Memory | `egru-expense-tracker-memory` |
-| AgentCore Runtime | `egru-expense-agent` |
-
-All resources are tagged with `user: egru`.
-
----
-
-## Troubleshooting
-
-**CloudFormation stack fails on IAM role:**
-Make sure you include `--capabilities CAPABILITY_NAMED_IAM` in the deploy command.
-
-**Docker build fails on ARM64:**
-If you're on an Intel Mac, Docker Desktop handles cross-platform builds via QEMU.
-Make sure "Use Rosetta for x86_64/amd64 emulation" is disabled in Docker settings.
-
-**AgentCore Runtime stays in CREATING:**
-Check CloudWatch logs. Common issues: ECR image not found, IAM role missing permissions,
-container fails health check on `/ping`.
-
-**Agent can't read expenses.db:**
-In Phase 1, the DB is baked into the container image. If you update the DB locally,
-rebuild and push the image. In later phases, the agent will call the backend API instead.
+All AWS resources are tagged with `user: egru`.
